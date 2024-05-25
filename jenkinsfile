@@ -1,0 +1,81 @@
+pipeline {
+    agent any
+
+    tools {
+        maven 'M2_HOME'
+    }
+
+    environment {
+        IMAGE_NAME = "chandrabhant98/banking04"
+    }
+
+    stages {
+        stage('CheckOut') {
+            steps {
+                echo 'Checkout the source code from GitHub'
+                git branch: 'main', url: 'https://github.com/chandrabhant98/star-agile-banking-finance.git'
+            }
+        }
+        stage('Package') {
+            steps {
+                echo 'Create a Package'
+                sh 'mvn clean package'
+            }
+        }
+        stage('Publish Test Report') {
+            steps {
+                publishHTML([
+                    allowMissing: false, 
+                    alwaysLinkToLastBuild: false, 
+                    keepAll: false, 
+                    reportDir: 'target/surefire-reports', 
+                    reportFiles: 'index.html', 
+                    reportName: 'HTML Report', 
+                    reportTitles: '', 
+                    useWrapperFileDirectly: true
+                ])
+            }
+        }
+        stage('Create Image using the package') {
+            steps {
+                echo 'Creating a Docker image from the package'
+                sh "docker build -t ${IMAGE_NAME} ."
+            }
+        }
+        stage('Docker login') {
+            steps {
+                echo 'Login to Docker Hub to push the images'
+                withCredentials([usernamePassword(credentialsId: 'Dockerlogin-user', passwordVariable: 'Dockerpassword', usernameVariable: 'Dockerlogin')]) {
+                    sh "echo ${Dockerpassword} | docker login -u ${Dockerlogin} --password-stdin"
+                }
+            }
+        }
+        stage('Push the Image') {
+            steps {
+                sh "docker push ${IMAGE_NAME}"
+            }
+        }
+        stage('Deploy using Ansible') {
+            steps {
+                script {
+                    try {
+                        ansiblePlaybook credentialsId: 'ssh-user1', disableHostKeyChecking: true, installation: 'ansible', inventory: '/etc/ansible/hosts', playbook: 'ansible.yml'
+                    } catch (Exception e) {
+                        echo "Ansible playbook execution failed: ${e}"
+                        error "Ansible playbook execution failed"
+                    }
+                }
+            }
+        }
+        stage('Create Infrastructure using Terraform') {
+            steps {
+                dir('scripts') {
+                    sh 'sudo chmod 600 worker.pem'
+                    sh 'terraform init'
+                    sh 'terraform validate'
+                    sh 'terraform apply -auto-approve'
+                }
+            }
+        }
+    }
+}
