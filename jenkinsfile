@@ -1,73 +1,56 @@
 pipeline {
-    agent any
-
-    tools {
-        maven 'M2_HOME'
-    }
+    agent { label 'slav1' }
 
     environment {
-        IMAGE_NAME = "chandrabhant98/banking04"
+        DOCKER_CREDENTIALS = credentials('docker-credentials-id') // Replace with your Docker credentials ID
+        MAVEN_HOME = '/path/to/maven' // Update to your Maven installation path
+        KUBE_CONFIG = '/path/to/kubeconfig' // Update to your kubeconfig path
     }
 
     stages {
-        stage('CheckOut') {
+        stage('Checkout Code') {
             steps {
-                echo 'Checkout the source code from GitHub'
-                git branch: 'main', url: 'https://github.com/chandrabhant98/star-agile-banking-finance.git'
+                // Checkout code from GitHub
+                git 'https://github.com/chandrabhant98/star-agile-banking-finance.git'
             }
         }
-        stage('Package') {
+
+        stage('Build') {
             steps {
-                echo 'Create a Package'
-                sh 'mvn clean package'
-            }
-        }
-        stage('Publish Test Report') {
-            steps {
-                echo 'Publishing Test Report'
-                publishHTML([
-                    allowMissing: false, 
-                    alwaysLinkToLastBuild: false, 
-                    keepAll: false, 
-                    reportDir: 'target/surefire-reports', 
-                    reportFiles: 'index.html', 
-                    reportName: 'HTML Report', 
-                    reportTitles: ''
-                ])
-            }
-        }
-        stage('Create Image using the package') {
-            steps {
-                echo 'Creating a Docker image from the package'
-                sh "docker build -t ${IMAGE_NAME} ."
-            }
-        }
-        stage('Docker login') {
-            steps {
-                echo 'Login to Docker Hub to push the images'
-                withCredentials([usernamePassword(credentialsId: 'Dockerlogin-user', passwordVariable: 'Dockerpassword', usernameVariable: 'Dockerlogin')]) {
-                    sh "echo ${Dockerpassword} | docker login -u ${Dockerlogin} --password-stdin"
+                script {
+                    // Build the project using Maven
+                    sh "${MAVEN_HOME}/bin/mvn clean package"
                 }
             }
         }
-        stage('Push the Image') {
+
+        stage('Docker Build') {
             steps {
-                echo 'Pushing the Docker image to Docker Hub'
-                sh "docker push ${IMAGE_NAME}"
+                script {
+                    // Build Docker image
+                    withDockerRegistry([credentialsId: 'docker-credentials-id', url: 'https://your-docker-registry-url']) {
+                        sh 'docker build -t your-image-name:latest .'
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    // Deploy to Kubernetes
+                    sh "kubectl --kubeconfig=${KUBE_CONFIG} apply -f k8s/deployment.yaml"
+                }
             }
         }
     }
 
     post {
-        always {
-            echo 'Cleaning up Docker images'
-            sh "docker rmi ${IMAGE_NAME}"
-        }
         success {
-            echo 'Pipeline completed successfully'
+            echo 'Pipeline completed successfully!'
         }
         failure {
-            echo 'Pipeline failed'
+            echo 'Pipeline failed.'
         }
     }
 }
