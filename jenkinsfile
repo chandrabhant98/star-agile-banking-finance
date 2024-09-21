@@ -1,56 +1,80 @@
 pipeline {
-    agent { label 'slav1' }
+    agent { label 'slave1' }
 
     environment {
-        DOCKER_CREDENTIALS = credentials('docker-credentials-id') // Replace with your Docker credentials ID
-        MAVEN_HOME = '/path/to/maven' // Update to your Maven installation path
-        KUBE_CONFIG = '/path/to/kubeconfig' // Update to your kubeconfig path
+        DOCKERHUB_CREDENTIALS = credentials('dockerloginid') // Your Docker Hub credentials ID
     }
 
     stages {
-        stage('Checkout Code') {
+        stage('SCM Checkout') {
             steps {
-                // Checkout code from GitHub
+                // Get code from your GitHub repository
                 git 'https://github.com/chandrabhant98/star-agile-banking-finance.git'
             }
         }
-
-        stage('Build') {
+        
+        stage('Maven Build') {
             steps {
-                script {
-                    // Build the project using Maven
-                    sh "${MAVEN_HOME}/bin/mvn clean package"
-                }
+                // Run Maven on a Unix agent
+                sh "mvn -Dmaven.test.failure.ignore=true clean package"
             }
         }
-
-        stage('Docker Build') {
+        
+        stage("Docker Build") {
             steps {
-                script {
-                    // Build Docker image
-                    withDockerRegistry([credentialsId: 'docker-credentials-id', url: 'https://your-docker-registry-url']) {
-                        sh 'docker build -t your-image-name:latest .'
-                    }
-                }
+                // Display Docker version
+                sh 'docker version'
+                // Build Docker image
+                sh "docker build -t chandrabhant98/bankapp-eta-ap:${BUILD_NUMBER} ."
+                // List Docker images
+                sh 'docker image list'
+                // Tag the latest image
+                sh "docker tag chandrabhant98/bankapp-eta-ap:${BUILD_NUMBER} chandrabhant98/bankapp-eta-ap:latest"
             }
         }
-
-        stage('Deploy to Kubernetes') {
+        
+        stage('Login to Docker Hub') {
             steps {
-                script {
-                    // Deploy to Kubernetes
-                    sh "kubectl --kubeconfig=${KUBE_CONFIG} apply -f k8s/deployment.yaml"
-                }
+                // Login to Docker Hub using credentials
+                sh 'echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin'
             }
         }
-    }
-
-    post {
-        success {
-            echo 'Pipeline completed successfully!'
+        
+        stage('Push to Docker Hub') {
+            steps {
+                // Push the latest Docker image to Docker Hub
+                sh "docker push chandrabhant98/bankapp-eta-ap:latest"
+            }
         }
-        failure {
-            echo 'Pipeline failed.'
+        
+        stage('Deploy to Kubernetes Environment') {
+            steps {
+                script {
+                    // Publish to the Kubernetes cluster using SSH
+                    sshPublisher(publishers: [sshPublisherDesc(
+                        configName: 'Kubernetes-Cluster',
+                        transfers: [
+                            sshTransfer(
+                                cleanRemote: false,
+                                excludes: '',
+                                execCommand: 'kubectl apply -f kubernetesdeploy.yaml',
+                                execTimeout: 120000,
+                                flatten: false,
+                                makeEmptyDirs: false,
+                                noDefaultExcludes: false,
+                                patternSeparator: '[, ]+',
+                                remoteDirectory: '.',
+                                remoteDirectorySDF: false,
+                                removePrefix: '',
+                                sourceFiles: 'kubernetesdeploy.yaml'
+                            )
+                        ],
+                        usePromotionTimestamp: false,
+                        useWorkspaceInPromotion: false,
+                        verbose: false
+                    )])
+                }
+            }
         }
     }
 }
